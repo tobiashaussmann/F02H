@@ -1,0 +1,10 @@
+FROM jenkins
+
+Maintainer ContainerSolutions
+
+USER root
+RUN curl -sSL https://get.docker.com/gpg | sudo apt-key add - & curl -sSL https://get.docker.com/ | sh
+RUN groupmod -g 999 docker
+RUN usermod -a -G docker jenkins
+ENV JENKINS_OPTS --httpPort=9090
+USER jenkins

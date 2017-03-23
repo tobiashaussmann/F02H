@@ -1,0 +1,17 @@
+jenkins:
+    image: containersol/jenkins_with_docker
+    volumes:
+        - jenkins-stuff:/var/jenkins_home/workspace/my_webapp
+        - .:/var/jenkins_data
+        - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+        - "8081:9090"
+    privileged: true
+registry:
+    image: registry
+    environment:
+        - STORAGE_PATH=/registry
+    volumes:
+        - registry-stuff:/registry
+    ports:
+        - "5000:5000"

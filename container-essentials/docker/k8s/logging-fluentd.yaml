@@ -1,0 +1,179 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: elasticsearch
+  namespace: logging
+spec:
+  template:
+    metadata:
+      labels:
+        component: elasticsearch
+        role: master
+      annotations:
+        pod.beta.kubernetes.io/init-containers: '[
+          {
+          "name": "sysctl",
+            "image": "busybox",
+            "imagePullPolicy": "IfNotPresent",
+            "command": ["sysctl", "-w", "vm.max_map_count=262144"],
+            "securityContext": {
+              "privileged": true
+            }
+          }
+        ]'
+    spec:
+      containers:
+      - name: elasticsearch
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+              - IPC_LOCK
+        image: elasticsearch:5
+        env:
+        - name: "ES_JAVA_OPTS"
+          value: "-Xms1g -Xmx1g"
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: "CLUSTER_NAME"
+          value: "myesdb"
+        - name: NODE_MASTER
+          value: "true"
+        - name: NODE_DATA
+          # value: "false"
+          value: "true"
+        - name: HTTP_ENABLE
+          # value: "false"
+          value: "true"
+        ports:
+        - containerPort: 9200
+          name: api
+          protocol: TCP
+        - containerPort: 9300
+          name: transport
+          protocol: TCP
+        volumeMounts:
+        - name: storage
+          mountPath: /data
+      volumes:
+          - emptyDir:
+              medium: ""
+            name: "storage"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-logging
+  namespace: logging
+  labels:
+    component: elasticsearch
+    kubernetes.io/cluster-service: "true"
+    kubernetes.io/name: "Elasticsearch"
+spec:
+  type: NodePort
+  ports:
+  - port: 9200
+    protocol: TCP
+    targetPort: api
+  selector:
+    component: elasticsearch
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: fluentd-es-v1.22
+  namespace: logging
+  labels:
+    k8s-app: fluentd-es
+    kubernetes.io/cluster-service: "true"
+    version: v1.22
+spec:
+  template:
+    metadata:
+      labels:
+        k8s-app: fluentd-es
+        kubernetes.io/cluster-service: "true"
+        version: v1.22
+    spec:
+      containers:
+      - name: fluentd-es
+        image: gcr.io/google_containers/fluentd-elasticsearch:1.22
+        command:
+          - '/bin/sh'
+          - '-c'
+          - '/usr/sbin/td-agent 2>&1 >> /var/log/fluentd.log'
+        resources:
+          limits:
+            memory: 200Mi
+          requests:
+            cpu: 100m
+            memory: 200Mi
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+      #nodeSelector:
+      #  alpha.kubernetes.io/fluentd-ds-ready: "true"
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: logging
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        component: kibana
+    spec:
+      containers:
+      - name: kibana
+        image: kibana:5
+        resources:
+          # keep request = limit to keep this container in guaranteed class
+          limits:
+            cpu: 100m
+          requests:
+            cpu: 100m
+        env:
+          - name: "ELASTICSEARCH_URL"
+            value: "http://elasticsearch-logging:9200"
+        ports:
+        - containerPort: 5601
+          name: ui
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: logging
+  labels:
+    component: kibana
+spec:
+  type: NodePort
+  ports:
+  - port: 5601
+    protocol: TCP
+    targetPort: ui
+  selector:
+    component: kibana

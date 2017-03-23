@@ -1,0 +1,6 @@
+---
+hi: there
+test: !!js/function |
+  function f() {
+    console.log('Hello from server side!');
+  }();
